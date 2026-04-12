@@ -125,5 +125,8 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 # Encoding
 base64 = "0.22"
 
+# HTTP body utilities (testing)
+http-body-util = "0.1"
+
 # Random
 getrandom = "0.2"

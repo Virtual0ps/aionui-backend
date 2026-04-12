@@ -104,6 +104,7 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "http-body-util",
  "serde",
  "serde_json",
  "tokio",
