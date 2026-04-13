@@ -1,9 +1,11 @@
+pub mod acp_agent;
 pub mod agent_manager;
 pub mod cli_process;
 pub mod stream_event;
 pub mod task_manager;
 pub mod types;
 
+pub use acp_agent::AcpAgentManager;
 pub use agent_manager::{AgentManagerHandle, IAgentManager};
 pub use cli_process::{CliAgentProcess, CliSpawnConfig};
 pub use stream_event::AgentStreamEvent;

@@ -43,6 +43,9 @@ pub struct AcpBuildExtra {
     pub backend: AcpBackend,
     /// Path to the CLI executable.
     pub cli_path: String,
+    /// Whether the user picked a custom workspace path.
+    #[serde(default)]
+    pub custom_workspace: bool,
     /// Agent name within the ACP backend.
     #[serde(default)]
     pub agent_name: Option<String>,

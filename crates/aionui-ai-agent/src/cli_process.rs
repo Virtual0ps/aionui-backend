@@ -9,6 +9,10 @@ use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, broadcast, watch};
 use tracing::{debug, error, trace, warn};
 
+/// Wrapper to hold a pre-subscribed receiver from before background tasks start.
+/// Ensures no events are lost between process spawn and consumer subscription.
+type InitialReceiver = std::sync::Mutex<Option<broadcast::Receiver<serde_json::Value>>>;
+
 /// Configuration for spawning a CLI agent subprocess.
 #[derive(Debug, Clone)]
 pub struct CliSpawnConfig {
@@ -41,6 +45,9 @@ pub struct CliAgentProcess {
     event_tx: broadcast::Sender<serde_json::Value>,
     /// Watch channel that transitions from `None` → `Some(ExitStatus)` on exit.
     exit_rx: watch::Receiver<Option<ExitStatus>>,
+    /// Pre-subscribed receiver created before background tasks start.
+    /// Take this via [`take_initial_receiver`] to guarantee no events are lost.
+    initial_rx: InitialReceiver,
     /// Handle to the stdout reader task (for cleanup).
     _stdout_handle: Arc<tokio::task::JoinHandle<()>>,
     /// Handle to the stderr reader task (for cleanup).
@@ -75,7 +82,9 @@ impl CliAgentProcess {
             AppError::Internal(format!("Failed to spawn CLI process '{}': {}", config.command, e))
         })?;
 
-        let pid = child.id().unwrap_or(0);
+        let pid = child.id().ok_or_else(|| {
+            AppError::Internal("Failed to obtain PID from spawned process".into())
+        })?;
         debug!(pid, command = %config.command, "CLI process spawned");
 
         let stdout = child.stdout.take().ok_or_else(|| {
@@ -89,6 +98,8 @@ impl CliAgentProcess {
         })?;
 
         let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+        // Pre-subscribe before spawning background tasks to guarantee no events are lost
+        let initial_rx = event_tx.subscribe();
         let (exit_tx, exit_rx) = watch::channel(None);
 
         // Background task: read stdout line-by-line → parse JSON → broadcast
@@ -152,6 +163,7 @@ impl CliAgentProcess {
             pid,
             event_tx,
             exit_rx,
+            initial_rx: std::sync::Mutex::new(Some(initial_rx)),
             _stdout_handle: Arc::new(stdout_handle),
             _stderr_handle: Arc::new(stderr_handle),
             _exit_handle: Arc::new(exit_handle),
@@ -192,6 +204,14 @@ impl CliAgentProcess {
     /// as they are parsed from the subprocess stdout.
     pub fn subscribe(&self) -> broadcast::Receiver<serde_json::Value> {
         self.event_tx.subscribe()
+    }
+
+    /// Take the pre-subscribed receiver created before background tasks started.
+    ///
+    /// This receiver captures all events from the very first output line.
+    /// Can only be called once; subsequent calls return `None`.
+    pub fn take_initial_receiver(&self) -> Option<broadcast::Receiver<serde_json::Value>> {
+        self.initial_rx.lock().unwrap().take()
     }
 
     /// Close stdin, signaling the subprocess that no more input will arrive.

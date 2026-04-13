@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use aionui_common::{AgentKillReason, AppError, ConversationStatus, TimestampMs, now_ms};
+use aionui_common::{AgentKillReason, AgentType, AppError, ConversationStatus, TimestampMs, now_ms};
 use dashmap::DashMap;
 use tracing::info;
 
@@ -116,7 +116,9 @@ impl IWorkerTaskManager for WorkerTaskManagerImpl {
             .iter()
             .filter(|entry| {
                 let agent = entry.value();
-                agent.status() == Some(ConversationStatus::Finished)
+                // Only ACP agents participate in idle cleanup per API Spec
+                agent.agent_type() == AgentType::Acp
+                    && agent.status() == Some(ConversationStatus::Finished)
                     && (now - agent.last_activity_at()) > idle_threshold_ms
             })
             .map(|entry| entry.key().clone())
@@ -157,6 +159,11 @@ mod tests {
                 last_activity: AtomicI64::new(now_ms()),
                 event_tx,
             }
+        }
+
+        fn with_agent_type(mut self, t: AgentType) -> Self {
+            self.agent_type = t;
+            self
         }
 
         fn with_last_activity(mut self, ts: TimestampMs) -> Self {
@@ -289,32 +296,40 @@ mod tests {
     }
 
     #[test]
-    fn collect_idle_finds_finished_and_stale_tasks() {
+    fn collect_idle_finds_finished_and_stale_acp_tasks() {
         let mgr = WorkerTaskManagerImpl {
             tasks: DashMap::new(),
             factory: Arc::new(|_| unreachable!()),
         };
 
-        // Finished task with old activity → should be collected
+        // ACP + Finished + old activity → should be collected
         let stale = Arc::new(
             MockAgent::new("conv-stale", Some(ConversationStatus::Finished))
                 .with_last_activity(now_ms() - 600_000), // 10 min ago
         );
         mgr.tasks.insert("conv-stale".into(), stale);
 
-        // Finished task with recent activity → should NOT be collected
+        // ACP + Finished + recent activity → should NOT be collected
         let recent = Arc::new(
             MockAgent::new("conv-recent", Some(ConversationStatus::Finished))
                 .with_last_activity(now_ms()),
         );
         mgr.tasks.insert("conv-recent".into(), recent);
 
-        // Running task with old activity → should NOT be collected
+        // ACP + Running + old activity → should NOT be collected
         let running = Arc::new(
             MockAgent::new("conv-running", Some(ConversationStatus::Running))
                 .with_last_activity(now_ms() - 600_000),
         );
         mgr.tasks.insert("conv-running".into(), running);
+
+        // Non-ACP (Gemini) + Finished + old activity → should NOT be collected
+        let gemini = Arc::new(
+            MockAgent::new("conv-gemini", Some(ConversationStatus::Finished))
+                .with_agent_type(AgentType::Gemini)
+                .with_last_activity(now_ms() - 600_000),
+        );
+        mgr.tasks.insert("conv-gemini".into(), gemini);
 
         let idle = mgr.collect_idle(300_000); // 5-min threshold
         assert_eq!(idle.len(), 1);
