@@ -1,6 +1,6 @@
 use std::fmt;
 
-use aionui_api_types::TeamAgentResponse;
+use aionui_api_types::{TeamAgentResponse, TeamResponse};
 use aionui_common::TimestampMs;
 use serde::{Deserialize, Serialize};
 
@@ -252,6 +252,17 @@ impl Team {
             created_at: row.created_at,
             updated_at: row.updated_at,
         })
+    }
+
+    pub fn to_response(&self) -> TeamResponse {
+        TeamResponse {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            agents: self.agents.iter().map(|a| a.to_response()).collect(),
+            lead_agent_id: self.lead_agent_id.clone(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
     }
 }
 
@@ -546,6 +557,35 @@ mod tests {
         assert_eq!(team.agents.len(), 1);
         assert_eq!(team.agents[0].slot_id, "s1");
         assert_eq!(team.lead_agent_id.as_deref(), Some("s1"));
+    }
+
+    #[test]
+    fn team_to_response() {
+        let team = Team {
+            id: "t1".into(),
+            name: "Alpha".into(),
+            agents: vec![TeamAgent {
+                slot_id: "s1".into(),
+                name: "Lead".into(),
+                role: TeammateRole::Lead,
+                conversation_id: "c1".into(),
+                backend: "acp".into(),
+                model: "claude".into(),
+                custom_agent_id: None,
+                status: Some(TeammateStatus::Idle),
+            }],
+            lead_agent_id: Some("s1".into()),
+            created_at: 1000,
+            updated_at: 2000,
+        };
+        let resp = team.to_response();
+        assert_eq!(resp.id, "t1");
+        assert_eq!(resp.name, "Alpha");
+        assert_eq!(resp.agents.len(), 1);
+        assert_eq!(resp.agents[0].slot_id, "s1");
+        assert_eq!(resp.lead_agent_id.as_deref(), Some("s1"));
+        assert_eq!(resp.created_at, 1000);
+        assert_eq!(resp.updated_at, 2000);
     }
 
     #[test]
